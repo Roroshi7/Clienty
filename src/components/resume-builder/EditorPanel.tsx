@@ -11,7 +11,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { format } from "date-fns"
-import { Calendar as CalendarIcon, Plus, Trash2, Pencil } from "lucide-react"
+import { Calendar as CalendarIcon, Plus, Trash2, Pencil, Wand2 } from "lucide-react"
 import { EditorPanelProps, Resume } from "@/types/resume"
 
 const resumeSchema = z.object({
@@ -63,12 +63,42 @@ const resumeSchema = z.object({
   awards: z.string().optional(),
 })
 
+// Add Gemini API function
+const generateBulletPoints = async (description: string, type: 'experience' | 'project') => {
+  try {
+    const response = await fetch('/api/generate-bullets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        description,
+        type,
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate bullet points');
+    }
+    
+    const data = await response.json();
+    return data.bulletPoints;
+  } catch (error) {
+    console.error('Error generating bullet points:', error);
+    return [];
+  }
+}
+
 export function EditorPanel({ resume, onUpdate }: EditorPanelProps) {
   const [newSkill, setNewSkill] = useState("")
   const [newBulletPoint, setNewBulletPoint] = useState("")
   const [editingExperience, setEditingExperience] = useState<number | null>(null)
   const [editingEducation, setEditingEducation] = useState<number | null>(null)
   const [editingProject, setEditingProject] = useState<number | null>(null)
+  const [isGeneratingBullets, setIsGeneratingBullets] = useState(false)
+  const [generatedBullets, setGeneratedBullets] = useState<string[]>([])
+  const [currentDescription, setCurrentDescription] = useState("")
+  const [currentType, setCurrentType] = useState<'experience' | 'project'>('experience')
   const [newExperience, setNewExperience] = useState({
     title: "",
     company: "",
@@ -501,6 +531,38 @@ export function EditorPanel({ resume, onUpdate }: EditorPanelProps) {
     })
   }
 
+  // Add function to handle bullet generation
+  const handleGenerateBullets = async (description: string, type: 'experience' | 'project') => {
+    setIsGeneratingBullets(true);
+    setCurrentDescription(description);
+    setCurrentType(type);
+    
+    try {
+      const bullets = await generateBulletPoints(description, type);
+      setGeneratedBullets(bullets);
+    } catch (error) {
+      console.error('Error generating bullets:', error);
+    } finally {
+      setIsGeneratingBullets(false);
+    }
+  };
+
+  // Add function to apply generated bullets
+  const applyGeneratedBullets = () => {
+    if (currentType === 'experience' && editingExperience !== null) {
+      setNewExperience({
+        ...newExperience,
+        description: generatedBullets,
+      });
+    } else if (currentType === 'project' && editingProject !== null) {
+      setNewProject({
+        ...newProject,
+        description: generatedBullets,
+      });
+    }
+    setGeneratedBullets([]);
+  };
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 h-[calc(100vh-64px)] overflow-y-auto px-6 py-4 w-full flex flex-col">
       <div className="flex-grow space-y-4">
@@ -752,13 +814,50 @@ export function EditorPanel({ resume, onUpdate }: EditorPanelProps) {
               </div>
               <div className="space-y-1">
                 <label className="text-sm text-gray-400">Description</label>
-                <Textarea
-                  value={newExperience.description.join('\n')}
-                  onChange={(e) => setNewExperience({ ...newExperience, description: e.target.value.split('\n').filter(line => line.trim()) })}
-                  placeholder="Enter your experience description (one point per line)"
-                  className="bg-[#2a2a2a] border-[#3a3a3a] focus:border-[#7d47ea] transition-colors min-h-[60px] text-sm"
-                />
+                <div className="space-y-2">
+                  <Textarea
+                    value={newExperience.description.join('\n')}
+                    onChange={(e) => setNewExperience({ ...newExperience, description: e.target.value.split('\n').filter(line => line.trim()) })}
+                    placeholder="Enter your experience description (one point per line)"
+                    className="bg-[#2a2a2a] border-[#3a3a3a] focus:border-[#7d47ea] transition-colors min-h-[60px] text-sm"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => handleGenerateBullets(newExperience.description.join('\n'), 'experience')}
+                    className="w-full bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white border border-[#7d47ea]/50 hover:border-[#7d47ea] transition-colors h-8"
+                    disabled={isGeneratingBullets}
+                  >
+                    {isGeneratingBullets ? (
+                      <span className="flex items-center gap-2">
+                        <span className="animate-spin">⚡</span>
+                        Generating...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Wand2 className="h-4 w-4" />
+                        Generate Bullet Points
+                      </span>
+                    )}
+                  </Button>
+                </div>
               </div>
+              {generatedBullets.length > 0 && currentType === 'experience' && (
+                <div className="space-y-2 p-3 bg-[#2a2a2a] rounded-lg border border-[#7d47ea]/50">
+                  <h3 className="text-sm font-medium text-white">Generated Bullet Points</h3>
+                  <ul className="space-y-1">
+                    {generatedBullets.map((bullet, index) => (
+                      <li key={index} className="text-sm text-gray-300">• {bullet}</li>
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    onClick={applyGeneratedBullets}
+                    className="w-full bg-[#7d47ea] hover:bg-[#7d47ea]/90 text-white transition-colors h-8"
+                  >
+                    Apply Generated Bullets
+                  </Button>
+                </div>
+              )}
               <Button
                 type="button"
                 onClick={editingExperience !== null ? updateExperience : addExperience}
@@ -881,13 +980,50 @@ export function EditorPanel({ resume, onUpdate }: EditorPanelProps) {
               </div>
               <div className="space-y-1">
                 <label className="text-sm text-gray-400">Description</label>
-                <Textarea
-                  value={newProject.description.join('\n')}
-                  onChange={(e) => setNewProject({ ...newProject, description: e.target.value.split('\n').filter(line => line.trim()) })}
-                  placeholder="Enter your project description (one point per line)"
-                  className="bg-[#2a2a2a] border-[#3a3a3a] focus:border-[#7d47ea] transition-colors min-h-[60px] text-sm"
-                />
+                <div className="space-y-2">
+                  <Textarea
+                    value={newProject.description.join('\n')}
+                    onChange={(e) => setNewProject({ ...newProject, description: e.target.value.split('\n').filter(line => line.trim()) })}
+                    placeholder="Enter your project description (one point per line)"
+                    className="bg-[#2a2a2a] border-[#3a3a3a] focus:border-[#7d47ea] transition-colors min-h-[60px] text-sm"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => handleGenerateBullets(newProject.description.join('\n'), 'project')}
+                    className="w-full bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white border border-[#7d47ea]/50 hover:border-[#7d47ea] transition-colors h-8"
+                    disabled={isGeneratingBullets}
+                  >
+                    {isGeneratingBullets ? (
+                      <span className="flex items-center gap-2">
+                        <span className="animate-spin">⚡</span>
+                        Generating...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Wand2 className="h-4 w-4" />
+                        Generate Bullet Points
+                      </span>
+                    )}
+                  </Button>
+                </div>
               </div>
+              {generatedBullets.length > 0 && currentType === 'project' && (
+                <div className="space-y-2 p-3 bg-[#2a2a2a] rounded-lg border border-[#7d47ea]/50">
+                  <h3 className="text-sm font-medium text-white">Generated Bullet Points</h3>
+                  <ul className="space-y-1">
+                    {generatedBullets.map((bullet, index) => (
+                      <li key={index} className="text-sm text-gray-300">• {bullet}</li>
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    onClick={applyGeneratedBullets}
+                    className="w-full bg-[#7d47ea] hover:bg-[#7d47ea]/90 text-white transition-colors h-8"
+                  >
+                    Apply Generated Bullets
+                  </Button>
+                </div>
+              )}
               <div className="space-y-1">
                 <label className="text-sm text-gray-400">Duration</label>
                 <DateRangeSelector
